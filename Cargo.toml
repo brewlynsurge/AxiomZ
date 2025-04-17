@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "spider",
+    "indexer"
+]
+resolver = "3"
