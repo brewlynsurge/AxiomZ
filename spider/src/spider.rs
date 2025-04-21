@@ -28,8 +28,51 @@ impl Spider {
         }
     }
 
-    pub fn start(&mut self) {
-        Crawler::crawl_site("");
+    pub async fn start(&mut self, start_url: &str) {
+        let mut current_url = start_url.to_string();
+        loop {
+            Console::info(&format!("Crawling {current_url}"), Some("spider"));
+
+            let page_container = Crawler::crawl_site(&current_url).await;
+            if page_container.is_ok() {
+                let (page_title, page_description, page_words, page_links) = page_container.unwrap();
+
+                match UrlForntier::extend(page_links, &mut self.state_machine) {
+                    Ok(_) => {},
+                    Err(e) => {
+                        Console::error(&format!("Failed to extend links into the UrlForntier: {e}"), Some("spider"));
+                    }
+                }
+                
+
+                // TODO
+
+
+            } else {
+                Console::error(&format!("Page crawl error: {}", page_container.err().unwrap()), Some("spider"));
+            }
+
+            current_url = Self::get_next_url(&mut self.state_machine);
+        }
+        
+        
+
+        
+        
+        
+    
+    }
+
+    fn get_next_url(state_machine: &mut StateMachine) -> String {
+        loop {
+            let new_url = UrlForntier::get_url(state_machine);
+            if new_url.is_none() {
+                Console::warn("Failed to retrive url from UrlForntier", Some("spider"));
+                continue;
+            }
+            break new_url.unwrap();
+
+        }
     }
 
     fn safe_check_data_path(path: &str) {
@@ -37,6 +80,8 @@ impl Spider {
             std::fs::create_dir(path);
         }
     }
+
+    
 }
 
 

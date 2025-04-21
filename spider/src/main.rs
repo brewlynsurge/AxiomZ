@@ -10,5 +10,5 @@ async fn main() {
     spider_info.display_head();
 
     let mut spider_crawler = spider::Spider::new("data");
-    spider_crawler.start();
+    spider_crawler.start("https://en.wikipedia.org/wiki/Wikipedia").await;
 }
