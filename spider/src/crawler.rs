@@ -8,22 +8,27 @@ use url;
 use whatlang;
 use unidecode;
 use rust_stemmers;
+use robotstxt;
 use super::utils::Console;
 
 pub struct Crawler;
 impl Crawler {
     pub async fn crawl_site(url:&str) -> Result<(String, String, HashSet<String>, HashSet<String>), std::io::Error>{
+        // Checking if the url can be crawled
+        let is_scraping_allowed = Self::is_scraping_allowed(url, "SurfXSpiderRobot").await?;
+        if !is_scraping_allowed {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, "The site is not allowed to crawl"));
+        }
+        
         let client = ClientProxy::new("http_proxies.txt").await?;
+
         let response = client.get(url)
             .send()
             .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
         let response_text = response.text().await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-        
         let document = scraper::Html::parse_document(&response_text);
-
-
 
         let title = Self::get_title(&document)?;
         if title.is_empty() {
@@ -149,6 +154,28 @@ impl Crawler {
         }
 
         Ok(all_words)
+    }
+
+    async fn is_scraping_allowed(url: &str, user_agent: &str) -> Result<bool, std::io::Error> {
+        let parsed_url = reqwest::Url::parse(url)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        let host_str = parsed_url.host_str().ok_or("Invalid host")
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        
+        let robots_url = format!("{}://{}{}", parsed_url.scheme(), host_str, "/robots.txt");
+        let response = reqwest::get(&robots_url).await;
+        
+        let robots_txt = match response {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    resp.text().await.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?
+                } else {return Ok(true)}
+            },
+            Err(_) => {return Ok(true);}
+        };
+
+        let mut matcher = robotstxt::DefaultMatcher::default();
+        Ok(matcher.one_agent_allowed_by_robots(&robots_txt, user_agent, url))
     }
 }
 
