@@ -29,14 +29,11 @@ impl UrlForntier {
         Ok(())
     }
 
-    pub fn extend<T>(urls: T, state_machine: &mut StateMachine)-> Result<(), std::io::Error> 
-    where T: IntoIterator<Item = String>
-    {
+    pub fn extend<T>(urls: T, state_machine: &mut StateMachine) where T: IntoIterator<Item = String> {
         for url in urls.into_iter() {
-            Self::append(&url, state_machine)?;
+            _ = Self::append(&url, state_machine);
         }
         
-        Ok(())
     }
 
     pub fn get_url(state_machine: &mut StateMachine) -> Option<String> {

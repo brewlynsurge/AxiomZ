@@ -5,10 +5,9 @@ use rand::seq::IndexedRandom;
 use reqwest;
 use scraper;
 use url;
-use whatlang;
-use unidecode;
 use rust_stemmers;
 use robotstxt;
+use regex::Regex;
 use super::utils::Console;
 
 pub struct Crawler;
@@ -36,10 +35,10 @@ impl Crawler {
         }
 
         let description = Self::get_description(&document)?;
-        let all_links = Self::get_all_links(&document)?;
-        let all_words = Self::get_all_words(&document)?;
+        let all_links = Self::get_all_links(&document, 4)?;
+        let all_text = Self::get_all_texts(&document)?;
 
-        Ok((title, description, all_words, all_links))
+        Ok((title, description, all_text, all_links))
     }
 
     fn get_title(document: &scraper::Html) -> Result<String, std::io::Error> {
@@ -67,93 +66,41 @@ impl Crawler {
         return Ok(description);
     }
 
-    fn get_all_links(document: &scraper::Html) -> Result<HashSet<String>, std::io::Error> {
+    fn get_all_links(document: &scraper::Html, link_path_max_lenght: usize) -> Result<HashSet<String>, std::io::Error> {
         let mut all_links = HashSet::new();
         let selector = scraper::Selector::parse("a")
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
         
         for element in document.select(&selector) {
             if let Some(link) = element.value().attr("href") {
-                if url::Url::parse(link).is_ok() {
-                    all_links.insert(link.to_string());
+                if let Ok(url) = url::Url::parse(link) {
+                    if url.scheme() == "http" || url.scheme() == "https" {
+                        let url_path = url.path();
+                        if url_path.contains("%") {
+                            continue;
+                        }
+
+                        let slash_count = url_path.chars().filter(|&c| c == '/').count();
+                        if slash_count <= link_path_max_lenght {
+                            all_links.insert(url.to_string());
+                        }
+                    }
                 }
+
             }
+
         }
 
         return Ok(all_links);
     }
 
-    fn get_all_words(document: &scraper::Html) -> Result<HashSet<String>, std::io::Error> {
-        let selector = scraper::Selector::parse("p, div, span, li, h1, h2, h3, h4, h5, h6")
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-        
-        let stop_words = [
-            "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "if", "in", "into", "is",
-            "it", "no", "not", "of", "on", "or", "such", "that", "the", "their", "then", "there",
-            "these", "they", "this", "to", "was", "will", "with",
-        ].iter().map(|s| s.to_string()).collect::<Vec<String>>();
-        
-        let mut all_words = HashSet::new();
-        for element in document.select(&selector) {
-            let tag_name = element.value().name();
-            if matches!(tag_name, "script" | "style" | "head" | "noscript" | "meta" | "svg" | "link") {
-                continue;
-            }
-
-            for node in element.text() {
-                let mut text = node.trim().to_string();
-                if text.is_empty() {continue;}
-                
-                // Skip obvious garbage
-                let is_garbage = {
-                    let obvious_garbages = ["http", ".com", ".png", ".jpg", ".svg", "color", "font", "px", "{"];
-                    let mut is_garbage = false;
-                    for i in obvious_garbages {
-                        if text.contains(i) {
-                            is_garbage = true;
-                            break;
-                        }
-                    }
-                    is_garbage
-                };
-                if is_garbage {continue;}
-
-                let is_english = whatlang::detect(&text).map_or(false, |info| info.lang() == whatlang::Lang::Eng);
-                if !is_english {continue;}
-
-                if !text.is_ascii() {
-                    text = unidecode::unidecode(&text);
-                }
-
-                let words = {
-                    let english_stemmer = rust_stemmers::Stemmer::create(rust_stemmers::Algorithm::English);
-                    let mut words = Vec::new();
-                    for word in text.split_whitespace() {
-                        let word = word.chars()
-                            .filter(|c| c.is_alphanumeric())
-                            .collect::<String>()
-                            .replace(" ", "")
-                            .to_lowercase();
-                        let stemmerized_word = english_stemmer.stem(&word)
-                            .to_string();
-                        
-                        if stop_words.contains(&word) || word.is_empty() {
-                            continue;
-                        }
-
-                        words.push(word);
-                    }
-
-                    words
-                };
-                
-                if !words.is_empty() {
-                    all_words.extend(words);
-                }
-            }
+    fn get_all_texts(document: &scraper::Html) -> Result<HashSet<String>, std::io::Error> {
+        let mut all_text = HashSet::new();
+        for text_node in document.root_element().text() {
+            all_text.insert(text_node.to_string());
         }
-
-        Ok(all_words)
+        
+        Ok(all_text)
     }
 
     async fn is_scraping_allowed(url: &str, user_agent: &str) -> Result<bool, std::io::Error> {
@@ -195,8 +142,8 @@ impl ClientProxy {
 
             let client = reqwest::Client::builder()
                 .proxy(proxy.clone())
-                .connect_timeout(std::time::Duration::from_secs(5))  // 1 s connect timeout
-                .timeout(std::time::Duration::from_secs(5))          // 1 s overall timeout
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .timeout(std::time::Duration::from_secs(30))
                 .build()
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
             

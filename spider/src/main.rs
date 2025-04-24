@@ -1,6 +1,7 @@
 pub mod utils;
 pub mod url_frontier;
 pub mod crawler;
+pub mod indexer;
 pub mod spider;
 
 

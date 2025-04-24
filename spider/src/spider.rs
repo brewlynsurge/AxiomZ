@@ -2,6 +2,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::io::Write;
+use std::process::exit;
 use colored::Colorize;
 use serde::{Serialize, Deserialize};
 use serde_json;
@@ -9,12 +10,15 @@ use serde_json;
 use crate::url_frontier::UrlForntier;
 use super::crawler::Crawler;
 use super::utils::Console;
+use super::indexer::Indexer;
+use database::database::SurfXDatabase;
 
 /*
 Spider
 */
 pub struct Spider {
-    state_machine: StateMachine
+    state_machine: StateMachine,
+    database: SurfXDatabase
 }
 
 impl Spider {
@@ -23,26 +27,36 @@ impl Spider {
         let state_machine = StateMachine::load(&format!("{}/state.dat", data_path))
             .expect("Failed to load machine state in spider");
         
+        let surfx_database = SurfXDatabase::new(data_path);
         Self {
-            state_machine
+            state_machine,
+            database: surfx_database
         }
     }
 
     pub async fn start(&mut self, start_url: &str) {
+        // Connect to the database
+        match self.database.connect().await {
+            Ok(_) => {},
+            Err(e) => {
+                Console::error(&format!("Failed to connect to the database: {e}"), Some("spider"));
+                return ;
+            }
+        }
+        
+        // Start crawling
         let mut current_url = start_url.to_string();
         loop {
             Console::info(&format!("Crawling {current_url}"), Some("spider"));
 
             let page_container = Crawler::crawl_site(&current_url).await;
             if page_container.is_ok() {
-                let (page_title, page_description, page_words, page_links) = page_container.unwrap();
+                let (page_title, page_description, page_texts, page_links) = page_container.unwrap();
 
-                match UrlForntier::extend(page_links, &mut self.state_machine) {
-                    Ok(_) => {},
-                    Err(e) => {
-                        Console::error(&format!("Failed to extend links into the UrlForntier: {e}"), Some("spider"));
-                    }
-                }
+                let page_indexer = Indexer::new(&page_title, &current_url, &page_description);
+                page_indexer.parse(page_texts, &self.database);
+                
+                UrlForntier::extend(page_links, &mut self.state_machine)
                 
 
                 // TODO

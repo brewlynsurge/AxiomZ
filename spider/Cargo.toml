@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 colored = "3.0.0"
 rand = "0.9.1"
+regex = "1.11.1"
 reqwest = "0.12.15"
 robotstxt = "0.3.0"
 rust-stemmers = "1.2.0"
@@ -13,6 +14,6 @@ scraper = "0.23.1"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 tokio = { version = "1.44.2", features = ["full"] }
-unidecode = "0.3.0"
 url = "2.5.4"
-whatlang = "0.16.4"
+
+database = { path = "../database" }
