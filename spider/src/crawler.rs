@@ -115,9 +115,10 @@ impl Crawler {
         let robots_txt = match response {
             Ok(resp) => {
                 if resp.status().is_success() {
-                    resp.text().await.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?
-                } else {return Ok(true)}
-            },
+                    let text = resp.text().await.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+                    String::from_utf8_lossy(text.as_bytes()).to_string()
+                } else {return Ok(true);}
+            }
             Err(_) => {return Ok(true);}
         };
 

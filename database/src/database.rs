@@ -1,4 +1,6 @@
 use sqlx::{Pool, SqlitePool, Sqlite};
+use sqlx::Row; // Import this to use `.get()` on rows
+
 
 pub struct SurfXDatabase {
     database_url: String,
@@ -66,62 +68,52 @@ impl SurfXDatabase {
 
     pub async fn add_webpage(&self, title: &str, url: &str, description: Option<String>) -> Result<i32, std::io::Error> {
         let pool = self.pool.as_ref().unwrap();
-        
-        let id: Option<(i32,)> = sqlx::query_as("
+    
+        // Insert or ignore the webpage
+        sqlx::query("
             INSERT INTO webpages (url, title, description)
             VALUES (?, ?, ?)
-            ON CONFLICT(url) DO NOTHING
-            RETURNING webpage_id;
+            ON CONFLICT(url) DO NOTHING;
         ")
         .bind(url)
         .bind(title)
         .bind(description.unwrap_or_default())
-        .fetch_optional(pool)
+        .execute(pool)
         .await
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-
-        if let Some((id,)) = id {
-            return Ok(id);
-        } else {
-            // If conflict happened, fetch the existing one
-            let id: (i32,) = sqlx::query_as("SELECT webpage_id FROM webpages WHERE url = ?;")
-                .bind(url)
-                .fetch_one(pool)
-                .await
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-            return Ok(id.0);
-        }
+    
+        // Fetch the webpage_id
+        let id: (i32,) = sqlx::query_as("SELECT webpage_id FROM webpages WHERE url = ?;")
+            .bind(url)
+            .fetch_one(pool)
+            .await
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    
+        Ok(id.0)
     }
 
     pub async fn add_word(&self, word: &str) -> Result<i32, std::io::Error> {
         let pool = self.pool.as_ref().unwrap();
-        
-        // Insert or ignore the word and get its ID
-        let word_id: Option<(i32,)> = sqlx::query_as(r#"
+    
+        // Insert or ignore the word
+        sqlx::query(r#"
             INSERT INTO words (word)
             VALUES (?)
-            ON CONFLICT (word) DO NOTHING
-            RETURNING word_id;
+            ON CONFLICT (word) DO NOTHING;
         "#)
         .bind(word)
-        .fetch_optional(pool)
+        .execute(pool)
         .await
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-        
-        let word_id = match word_id {
-            Some((id,)) => id,
-            None => {
-                // Word already exists, so we select the ID
-                let row: (i32,) = sqlx::query_as("SELECT word_id FROM words WHERE word = ?")
-                    .bind(word)
-                    .fetch_one(pool)
-                    .await
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-                row.0
-            }
-        };
-
-        Ok(word_id)
+    
+        // Fetch the word_id
+        let row: (i32,) = sqlx::query_as("SELECT word_id FROM words WHERE word = ?")
+            .bind(word)
+            .fetch_one(pool)
+            .await
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    
+        Ok(row.0)
     }
 
     pub async fn add_link(&self, word_id: i32, webpage_id: i32, tf_idf: f64) -> Result<(), std::io::Error> {
@@ -165,5 +157,38 @@ impl SurfXDatabase {
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
         Ok(row.0)
+    }
+
+    pub async fn print_all_webpages(&self) -> Result<(), std::io::Error> {
+        let pool = self.pool.as_ref().unwrap();
+    
+        let rows = sqlx::query(
+            r#"
+            SELECT webpage_id, url, title, description
+            FROM webpages
+            ORDER BY webpage_id
+            "#
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    
+        println!("--- Webpages Table ---");
+        for row in rows {
+            let webpage_id: i64 = row.get("webpage_id");
+            let url: String = row.get("url");
+            let title: Option<String> = row.get("title");
+            let description: Option<String> = row.get("description");
+    
+            println!(
+                "ID: {}, URL: {}, Title: {}, Description: {}",
+                webpage_id,
+                url,
+                title.unwrap_or_default(),
+                description.unwrap_or_default()
+            );
+        }
+    
+        Ok(())
     }
 }

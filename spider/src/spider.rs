@@ -17,6 +17,7 @@ use database::database::SurfXDatabase;
 Spider
 */
 pub struct Spider {
+    data_path: String,
     state_machine: StateMachine,
     database: SurfXDatabase
 }
@@ -29,6 +30,7 @@ impl Spider {
         
         let surfx_database = SurfXDatabase::new(data_path);
         Self {
+            data_path: data_path.to_string(),
             state_machine,
             database: surfx_database
         }
@@ -54,14 +56,9 @@ impl Spider {
                 let (page_title, page_description, page_texts, page_links) = page_container.unwrap();
 
                 let page_indexer = Indexer::new(&page_title, &current_url, &page_description);
-                page_indexer.parse(page_texts, &self.database);
-                
-                UrlForntier::extend(page_links, &mut self.state_machine)
-                
-
-                // TODO
-
-
+                page_indexer.parse(page_texts, &self.database).await;
+                UrlForntier::extend(page_links, &mut self.state_machine);
+                StateMachine::save_state(&self.state_machine, &format!("{}/state.dat", &self.data_path));
             } else {
                 Console::error(&format!("Page crawl error: {}", page_container.err().unwrap()), Some("spider"));
             }
