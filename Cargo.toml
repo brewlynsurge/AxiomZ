@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "spider",
-    "database"
+    "database",
+    "surfx"
 ]
 resolver = "3"

@@ -47,7 +47,12 @@ impl Spider {
         }
         
         // Start crawling
-        let mut current_url = start_url.to_string();
+        let mut current_url = {
+            if self.state_machine.urls.is_empty() {start_url.to_string()}
+            else {Self::get_next_url(&mut self.state_machine)}
+
+        };
+
         loop {
             Console::info(&format!("Crawling {current_url}"), Some("spider"));
 
@@ -65,12 +70,6 @@ impl Spider {
 
             current_url = Self::get_next_url(&mut self.state_machine);
         }
-        
-        
-
-        
-        
-        
     
     }
 

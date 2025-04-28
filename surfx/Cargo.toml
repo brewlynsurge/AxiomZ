@@ -1,0 +1,11 @@
+[package]
+name = "surfx"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1.44.2", features = ["full"] }
+database = {path = "../database" }
+rand = "0.9.1"
+regex = "1.11.1"
+sqlx = { version = "0.8.5", features = ["runtime-tokio-rustls", "sqlite"] }

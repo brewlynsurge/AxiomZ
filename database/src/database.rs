@@ -4,7 +4,7 @@ use sqlx::Row; // Import this to use `.get()` on rows
 
 pub struct SurfXDatabase {
     database_url: String,
-    pool: Option<Pool<Sqlite>>
+    pub pool: Option<Pool<Sqlite>>
 }
 
 impl SurfXDatabase {
