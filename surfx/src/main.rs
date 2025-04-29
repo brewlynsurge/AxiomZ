@@ -1,11 +1,11 @@
-pub mod surfx;
+pub mod engine;
+pub mod website;
 
-#[tokio::main]
-async fn main() {
-    let search_engine =  surfx::SearchEngine::new("data").await.unwrap();
-    
-    let results = search_engine.search("india").await;
-    for i in results {
-        println!("{i}");
-    }
+// Main function to start the server
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    let search_engine = engine::SearchEngine::new("data").await?;
+
+    let webserver = website::WebServer::new(search_engine);
+    webserver.start().await
 }

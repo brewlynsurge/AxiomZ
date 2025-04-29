@@ -27,26 +27,29 @@ impl SearchEngine {
         })
     }
 
-    pub async fn search(&self, search_input: &str) -> HashSet<String> {
+    pub async fn search(&self, search_input: &str) -> HashSet<(String, String, Option<String>)> {
         let pool: &Pool<Sqlite> = self.database.pool.as_ref().unwrap();
         
         let search_input = Self::filter_search_input(search_input);
         let input_ids = Self::covert_to_word_ids(search_input, pool).await;
 
-        let mut urls_tfidf: Vec<(String, f64)> = Vec::new();
+        let mut urls_data: Vec<(String, String, Option<String>, f64)> = Vec::new();
         for word_id in input_ids {
             if let Ok(websites_data) = Self::get_websites_from_word_id(word_id, pool).await {
-                urls_tfidf.extend(websites_data.into_iter().map(|web_data| (web_data.0, web_data.3)));
+            urls_data.extend(websites_data);
             }
         }
 
         // Sort by tfidf in descending order
-        urls_tfidf.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        urls_data.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap_or(std::cmp::Ordering::Equal));
 
-        // Extract sorted URLs and tfidf values
-        let sorted_search_urls: HashSet<_> = urls_tfidf.iter().map(|(url, _)| url.clone()).collect();
+        // Extract sorted URLs, titles, and descriptions
+        let sorted_search_data: HashSet<(String, String, Option<String>)> = urls_data
+            .iter()
+            .map(|(url, title, description, _)| (url.clone(), title.clone(), description.clone()))
+            .collect();
 
-        return sorted_search_urls;
+        return sorted_search_data;
 
     }
 
