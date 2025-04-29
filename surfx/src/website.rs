@@ -60,7 +60,7 @@ impl WebServer {
                 results.push(SearchResult {
                     title: result.1,
                     link: result.0,
-                    description: result.2.unwrap_or("No description".into()),
+                    description: result.2.unwrap_or_else(|| "No description".to_string()),
                 })
             }
             results

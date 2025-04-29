@@ -19,7 +19,7 @@ impl Crawler {
             return Err(std::io::Error::new(std::io::ErrorKind::Other, "The site is not allowed to crawl"));
         }
         
-        let client = ClientProxy::new("http_proxies.txt").await?;
+        let client = ClientProxy::new().await?;
 
         let response = client.get(url)
             .send()
@@ -130,8 +130,8 @@ impl Crawler {
 
 struct ClientProxy;
 impl ClientProxy {
-    pub async fn new(file_path: &str) -> Result<reqwest::Client, std::io::Error> {
-        let proxies_vec = Self::read_proxies(file_path)?;
+    pub async fn new() -> Result<reqwest::Client, std::io::Error> {
+        let proxies_vec = Self::read_proxies()?;
 
         let client_proxy = loop {
             let random_url = proxies_vec.choose(&mut rand::rng())
@@ -169,8 +169,8 @@ impl ClientProxy {
         Ok(client)
     }
 
-    fn read_proxies(file_path: &str) -> Result<Vec<String>, std::io::Error> {
-        let content = std::fs::read_to_string(file_path)?;
+    fn read_proxies() -> Result<Vec<String>, std::io::Error> {
+        let content = include_str!("../../http_proxies.txt");
         let lines: Vec<String> = content.lines().map(String::from).collect();
         return Ok(lines);
     }
