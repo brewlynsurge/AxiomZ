@@ -62,6 +62,22 @@ impl SurfXDatabase {
         )").execute(pool)
             .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        
+        
+        // Visited sites table
+        sqlx::query("CREATE TABLE IF NOT EXISTS visited_sites (url TEXT NOT NULL UNIQUE)")
+            .execute(pool)
+            .await
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+
+        // url frontier table
+        sqlx::query("CREATE TABLE IF NOT EXISTS url_frontier (
+            url TEXT NOT NULL UNIQUE,
+            priority REAL NOT NULL,
+            PRIMARY KEY (url)
+        )").execute(pool)
+        .await
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
         Ok(())
     }
@@ -190,5 +206,44 @@ impl SurfXDatabase {
         }
     
         Ok(())
+    }
+
+    pub async fn insert_to_url_frontier(&self, url: &str, priority: f64) -> Result<(), std::io::Error> {
+        let pool = self.pool.as_ref().unwrap();
+
+        sqlx::query("INSERT INTO url_frontier (url, priority)
+                        VALUES (?, ?) ON CONFLICT (url)
+                        DO UPDATE SET priority = EXCLUDED.priority;"
+                    )
+            .bind(url)
+            .bind(priority)
+            .execute(pool)
+            .await
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+
+        Ok(())
+    }
+    
+    pub async fn remove_from_url_frontier(&self, url: &str) -> Result<(), std::io::Error> {
+        let pool = self.pool.as_ref().unwrap();
+
+        sqlx::query("DELETE FROM url_frontier WHERE url = ?")
+            .bind(url)
+            .execute(pool)
+            .await
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+
+        Ok(())
+    }
+
+    pub async fn get_all_urls_from_url_frontier(&self) -> Result<Vec<(String, f64)>, std::io::Error> {
+        let pool = self.pool.as_ref().unwrap();
+    
+        let rows = sqlx::query_as::<_, (String, f64)>("SELECT url, priority FROM url_frontier")
+            .fetch_all(pool)
+            .await
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    
+        Ok(rows)
     }
 }

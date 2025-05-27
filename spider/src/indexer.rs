@@ -1,5 +1,7 @@
 #![allow(unused)]
 
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use std::collections::{HashSet,HashMap};
 use regex::Regex;
 use super::utils;
@@ -25,12 +27,13 @@ impl Indexer {
         }
     }
 
-    pub async fn parse(&self, page_texts: HashSet<String>, surfx_database: &SurfXDatabase) -> Result<(), std::io::Error> {
+    pub async fn parse(&self, page_texts: HashSet<String>, surfx_database: Arc<Mutex<SurfXDatabase>>) -> Result<(), std::io::Error> {
+        let db = surfx_database.lock().await;
         // TODO: Fix some letters of words are missing sometimes    
 
         let stop_words: HashSet<String> = utils::STOP_WORDS.iter()
             .map(|s: &&str| s.to_string()).collect();
-        let total_webpages = surfx_database.count_total_webpages().await? + 1;
+        let total_webpages = db.count_total_webpages().await? + 1;
 
         let regex_english = Regex::new(r"^[a-zA-Z0-9_]+$")
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
@@ -62,17 +65,17 @@ impl Indexer {
             }
         }
 
-        let webpage_id = surfx_database.add_webpage(&self.title, &self.url, self.description.clone()).await?;
+        let webpage_id = db.add_webpage(&self.title, &self.url, self.description.clone()).await?;
         for (word, freq) in words_hash {
-            let word_id = surfx_database.add_word(&word).await?;
+            let word_id = db.add_word(&word).await?;
             
             let tf = freq as f64 / total_words as f64;
             let idf = {
-                let word_occurrence = surfx_database.count_word_occurrences(word_id).await? + 1;
+                let word_occurrence = db.count_word_occurrences(word_id).await? + 1;
                 (total_webpages as f64 / word_occurrence as f64).log10()
             };
             let tf_idf = tf * idf;
-            surfx_database.add_link(word_id, webpage_id, tf_idf).await?;
+            db.add_link(word_id, webpage_id, tf_idf).await?;
         }
 
         Ok(())

@@ -1,9 +1,8 @@
-pub mod utils;
-pub mod url_frontier;
 pub mod crawler;
 pub mod indexer;
 pub mod spider;
-
+pub mod url_frontier;
+pub mod utils;
 
 #[tokio::main]
 async fn main() {
@@ -11,5 +10,7 @@ async fn main() {
     spider_info.display_head();
 
     let mut spider_crawler = spider::Spider::new("data");
-    spider_crawler.start("https://en.wikipedia.org/wiki/Wikipedia").await;
+    spider_crawler
+        .start("https://en.wikipedia.org/wiki/Wikipedia")
+        .await;
 }
