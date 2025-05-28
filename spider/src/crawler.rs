@@ -6,7 +6,7 @@ use reqwest;
 use scraper;
 use url;
 use rust_stemmers;
-use robotstxt;
+use texting_robots::Robot;
 use regex::Regex;
 use super::utils::Console;
 
@@ -14,9 +14,11 @@ pub struct Crawler;
 impl Crawler {
     pub async fn crawl_site(url:&str) -> Result<(String, String, HashSet<String>, HashSet<String>), std::io::Error>{
         // Checking if the url can be crawled
-        let is_scraping_allowed = Self::is_scraping_allowed(url, "SurfXSpiderRobot").await?;
+        let is_scraping_allowed: bool = Self::is_scraping_allowed(url, "SurfXSpiderRobot").await
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        
         if !is_scraping_allowed {
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, "The site is not allowed to crawl"));
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("The site '{url}' is not allowd to crawl")));
         }
         
         let client = ClientProxy::new().await?;
@@ -103,27 +105,23 @@ impl Crawler {
         Ok(all_text)
     }
 
-    async fn is_scraping_allowed(url: &str, user_agent: &str) -> Result<bool, std::io::Error> {
-        let parsed_url = reqwest::Url::parse(url)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-        let host_str = parsed_url.host_str().ok_or("Invalid host")
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-        
-        let robots_url = format!("{}://{}{}", parsed_url.scheme(), host_str, "/robots.txt");
+    async fn is_scraping_allowed(url: &str, user_agent: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        // Parse the input URL
+        let url = url::Url::parse(url)?;
+        let robots_url = format!("{}://{}/robots.txt", url.scheme(), url.host_str().ok_or("The host is invalid")?);
+
+        // Fetch the robots.txt content
         let response = reqwest::get(&robots_url).await;
-        
         let robots_txt = match response {
-            Ok(resp) => {
-                if resp.status().is_success() {
-                    let text = resp.text().await.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-                    String::from_utf8_lossy(text.as_bytes()).to_string()
-                } else {return Ok(true);}
-            }
-            Err(_) => {return Ok(true);}
+            Ok(resp) => resp.text().await?,
+            Err(_) => return Ok(true) // If robots.txt is not found or inaccessible, assume crawling is allowed
         };
 
-        let mut matcher = robotstxt::DefaultMatcher::default();
-        Ok(matcher.one_agent_allowed_by_robots(&robots_txt, user_agent, url))
+        // Parse the robots.txt content
+        let robots = Robot::new(user_agent, robots_txt.as_bytes())?;
+        
+        let path = url.path();
+        Ok(robots.allowed(path))
     }
 }
 
