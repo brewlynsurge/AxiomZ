@@ -10,7 +10,7 @@ use serde::{Serialize, Deserialize};
 use serde_json;
 
 use super::url_frontier::UrlFrontier;
-use super::crawler::Crawler;
+// use super::crawler::Crawler;
 use super::utils::Console;
 use super::indexer::Indexer;
 use database::database::SurfXDatabase;
@@ -21,7 +21,8 @@ Spider
 pub struct Spider {
     data_path: String,
     database: Arc<Mutex<SurfXDatabase>>,
-    url_frontier: UrlFrontier,
+    //crawler: Crawler,
+    url_frontier: UrlFrontier
 }
 
 impl Spider {
@@ -29,16 +30,33 @@ impl Spider {
         Self::safe_check_data_path(data_path);
         
         let surfx_database = SurfXDatabase::new(data_path);
+        //let crawler = Crawler::new("SurfXSpiderRobot");
         let url_frontier = UrlFrontier::new("https://en.wikipedia.org/wiki/Main_Page");
+        
+                
+
+
+        
+
 
         Self {
             data_path: data_path.to_string(),
             database: Arc::new(Mutex::new(surfx_database)),
-            url_frontier: url_frontier,
+            //crawler: crawler,
+            url_frontier: url_frontier
+            
         }
     }
 
     pub async fn start(&mut self, start_url: &str) {
+        // Test
+        use crate::crawler;
+        crawler::test().await;
+
+        exit(0);
+
+
+
         // Connect to the database
         match self.database.lock().await.connect().await {
             Ok(_) => {},
@@ -55,20 +73,30 @@ impl Spider {
         
         loop {
             Console::info(&format!("Crawling {current_url}"), Some("spider"));
+            
+            //let page_container = self.crawler.crawl_site(&current_url).await;
+            //println!("Page container: {:?}", page_container.is_ok());
+            
+            /* 
             let page_container = Crawler::crawl_site(&current_url).await;
 
             if page_container.is_ok() {
                 let (page_title, page_description, page_texts, page_links) = page_container.unwrap();
-                use std::time::Instant;
-                let start = Instant::now();
+                
                 self.url_frontier.extend(page_links, self.database.clone()).await;
 
-                let duration = start.elapsed();
+                
+                use std::time::Instant;
+                //let start = Instant::now();
                 let page_indexer = Indexer::new(&page_title, &current_url, &page_description);
                 page_indexer.parse(page_texts, self.database.clone()).await;
+                //let duration = start.elapsed();
+                //println!("Time taken to index the page: {:?}", duration);
+                
             } else {
-                Console::error(&format!("Page crawl error: {}", page_container.err().unwrap()), Some("spider"));
+                println!("  - {}{}", "Page crawl error: ".red(), page_container.err().unwrap().to_string().red());
             }
+            */
             
             current_url = loop {
                 if let Some(url) = self.url_frontier.get_url(self.database.clone()).await {

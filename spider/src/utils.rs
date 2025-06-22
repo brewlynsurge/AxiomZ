@@ -10,6 +10,9 @@ pub const STOP_WORDS: [&str; 33]  = [
     "these", "they", "this", "to", "was", "will", "with",
 ];
 
+
+pub static PROXY_FILE: &str = include_str!("../../http_proxies.txt");
+
 /*
 Info
 */
@@ -58,6 +61,8 @@ impl Console {
         if module.is_some() {print!("[{}] ", module.unwrap().blue())}
         println!("{}", msg.red())
     }
+
+    
 }
 
 /*
