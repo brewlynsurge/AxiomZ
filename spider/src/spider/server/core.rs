@@ -1,13 +1,13 @@
-use tokio::net::{TcpListener, TcpStream};
-use shared;
+use crossterm::style::Stylize;
+use tokio::net::TcpListener;
+use shared::{self, CliError, raise_error};
+use super::handler;
 
 pub async fn handle_spider_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let spider_server = Server::start().await?; // TODO
+    let spider_server = Server::start().await?;
     println!("Starting Server...");
-    todo!();
-    loop {
-        
-    }
+
+    spider_server.handle_tcp_connections().await?;
     Ok(())
 }
 
@@ -38,14 +38,18 @@ impl Server {
         })
     }
 
-    pub async fn handle_tcp_clients(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn handle_tcp_connections(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         loop {
-            // Accept new connection
             let (socket, addr) = self.listener.accept().await?;
-    
-            println!("New client: {}", addr);
-        }
 
-        
+            tokio::spawn(async move {
+                match handler::ClientHandler::handle_client(socket, addr).await {
+                    Ok(_) => {},
+                    Err(e) => {
+                        raise_error!(CrawlerError, "Error from the crawler of address {}: {}", addr.to_string().red(), e);
+                    }
+                };
+            });
+        }
     }
 }

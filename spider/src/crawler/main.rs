@@ -1,9 +1,13 @@
-fn main() {
-    let config_loader = shared::config::ConfigLoader::new()
-        .resolve("DATABASE")
-        .resolve("SPIDER")
-        .execute_resolves();
+use tokio::net::TcpStream;
+use shared;
 
-    let spider_config = shared::config::SpiderConfig::load(&config_loader);
-    println!("{:?}", spider_config)
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut socket = TcpStream::connect("127.0.0.1:5002").await?;
+    
+    println!("Connected to server");
+    shared::socket::send_data(&mut socket, &"Hellow world".to_string()).await?;
+    
+
+    Ok(())
 }
