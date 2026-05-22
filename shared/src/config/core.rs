@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use crossterm::style::Stylize;
 use toml;
+use crate::{CliError, raise_error};
 
 // -------------------- CONFIGURATION -------------------------
 pub struct ConfigEntity {
@@ -43,19 +44,20 @@ impl ConfigLoader {
         return config_loader;
     }
 
-    pub fn load<T>(&self, config_name: &str) -> Result<T, Box<dyn std::error::Error + Send + Sync>> 
-    where T:serde::de::DeserializeOwned
-    {
+    pub fn load<T>(&self, config_name: &str) -> T  where T:serde::de::DeserializeOwned {
         let config_path = self.configurations.get(config_name).unwrap().filepath;
-        let file_content = std::fs::read_to_string(config_path)?;
-        let config: T = toml::from_str(&file_content)?;
-        Ok(config)
+        let file_content = std::fs::read_to_string(config_path)
+            .unwrap_or_else(|err| { raise_error!(ConfigLoadError, "Failed to read config file '{}': {}", config_path.red(), err) });
+        
+        let config: T = toml::from_str(&file_content)
+            .unwrap_or_else(|err| {
+                raise_error!(ConfigLoadError, "Failed to load config '{}': {}", config_path.red(), err)
+            });
+        return config;
     }
 
     pub fn report_field_safety(field_name: &str, config_path: &str) {
-        println!("{} Missing Configuration Field", "ConfigError:".red());
-        println!("   -> The field {} should contain a valid value in '{}'", field_name.red(), config_path.red());
-        std::process::exit(1)
+        raise_error!(ConfigLoadError, "The field {} should contain a valid value in config '{}'", field_name.red(), config_path.red())
     }
 
     pub fn resolve(mut self, config_name: &str) -> Self {

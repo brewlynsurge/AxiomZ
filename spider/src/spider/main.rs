@@ -5,7 +5,7 @@ pub mod terminal_ui;
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Spawns spider server
     tokio::spawn(async move {
-        server::handle_spider_server().await?;
+        server::core::handle_spider_server().await?;
         Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
     });
 

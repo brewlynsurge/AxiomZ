@@ -1,7 +1,10 @@
+#[allow(unused)]
 pub async fn handle_terminal_renderer() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let terminal_renderer = TerminalRenderer::new();
 
-    todo!();
+    loop {
+        // TODO
+    }
 
     Ok(())
 }

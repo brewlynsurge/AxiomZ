@@ -26,13 +26,13 @@ pub struct DatabaseConfig {
 }
 
 impl DatabaseConfig {
-    pub fn load(config_loader: &ConfigLoader) -> Result<DatabaseConfig, Box<dyn std::error::Error + Send + Sync>> {
-        let toplevel_config = config_loader.load::<DatabaseTopLevelConfig>("DATABASE")?;
+    pub fn load(config_loader: &ConfigLoader) -> DatabaseConfig {
+        let toplevel_config = config_loader.load::<DatabaseTopLevelConfig>("DATABASE");
         {
             let (field_safe, field_name) = Self::check_field_saftey(&toplevel_config);
             if !field_safe { ConfigLoader::report_field_safety(&field_name, Configurations::DATABASE.filepath);}
         }
-        return Ok(toplevel_config.database);
+        return toplevel_config.database;
     }
 
     fn check_field_saftey(toplevel_config: &DatabaseTopLevelConfig) -> (bool, String) {
@@ -66,13 +66,13 @@ pub struct SpiderConfig {
 }
 
 impl SpiderConfig {
-    pub fn load(config_loader: &ConfigLoader) -> Result<SpiderConfig, Box<dyn std::error::Error + Send + Sync>> {
-        let toplevel_config = config_loader.load::<SpiderTopLevelConfig>("SPIDER")?;
+    pub fn load(config_loader: &ConfigLoader) -> SpiderConfig {
+        let toplevel_config = config_loader.load::<SpiderTopLevelConfig>("SPIDER");
         {
             let (field_safe, field_name) = Self::check_field_saftey(&toplevel_config);
             if !field_safe { ConfigLoader::report_field_safety(&field_name, Configurations::SPIDER.filepath);}
         }
-        return Ok(toplevel_config.spider);
+        return toplevel_config.spider;
     }
 
     fn check_field_saftey(toplevel_config: &SpiderTopLevelConfig) -> (bool, String) {
