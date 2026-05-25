@@ -1,13 +1,14 @@
-use tokio::net::TcpStream;
-use shared;
+use crossterm::style::Stylize;
+
+pub mod crawler;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let mut socket = TcpStream::connect("127.0.0.1:5002").await?;
-    
-    println!("Connected to server");
-    shared::socket::send_data(&mut socket, &"Hellow world".to_string()).await?;
-    
+    println!("{} [Version {}]", "Crawler".cyan().bold(), env!("CARGO_PKG_VERSION").italic());
+    println!("(c) {}. All rights are reserved.\n", "AxiomZ".cyan().italic());
 
-    Ok(())
+    let crawler = crawler::Crawler::build().await?;
+    
+    
+    Ok(())  
 }

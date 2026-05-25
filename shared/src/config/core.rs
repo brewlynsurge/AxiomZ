@@ -48,7 +48,8 @@ impl ConfigLoader {
         let config_path = self.configurations.get(config_name).unwrap().filepath;
         let file_content = std::fs::read_to_string(config_path)
             .unwrap_or_else(|err| { raise_error!(ConfigLoadError, "Failed to read config file '{}': {}", config_path.red(), err) });
-        
+
+
         let config: T = toml::from_str(&file_content)
             .unwrap_or_else(|err| {
                 raise_error!(ConfigLoadError, "Failed to load config '{}': {}", config_path.red(), err)
