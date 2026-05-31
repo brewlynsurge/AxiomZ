@@ -14,5 +14,9 @@ path = "src/crawler/main.rs"
 [dependencies]
 tokio.workspace = true
 crossterm.workspace = true
+rand.workspace = true
+rand_distr.workspace = true
 sqlx.workspace = true
+reqwest.workspace = true
+serde.workspace = true
 shared = {path="../shared"}

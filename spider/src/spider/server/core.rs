@@ -1,13 +1,15 @@
-use crossterm::style::Stylize;
 use tokio::net::TcpListener;
-use shared::{self, CliError, raise_error};
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use shared;
 use super::handler;
+use crate::url_frontier::core::UrlFrontier;
 
-pub async fn handle_spider_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn handle_spider_server(url_frontier: Arc<Mutex<UrlFrontier>>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let spider_server = Server::start().await?;
     println!("Starting Server...");
 
-    spider_server.handle_tcp_connections().await?;
+    spider_server.handle_tcp_connections(url_frontier).await?;
     Ok(())
 }
 
@@ -16,17 +18,20 @@ pub async fn handle_spider_server() -> Result<(), Box<dyn std::error::Error + Se
 pub struct Server {
     listener: TcpListener,
     pub host: String,
-    pub port: u16
+    pub port: u16,
+    pub database_config: shared::config::DatabaseConfig
 }
 
 impl Server {
     pub async fn start() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let spider_config = {
-            let config_loader = shared::config::ConfigLoader::new()
-                .resolve("SPIDER")
-                .execute_resolves();
-            shared::config::SpiderConfig::load(&config_loader)
-        };
+        let config_loader = shared::config::ConfigLoader::new()
+            .resolve("DATABASE")
+            .resolve("SPIDER")
+            .execute_resolves();
+
+
+        let database_config = shared::config::DatabaseConfig::load(&config_loader);
+        let spider_config = shared::config::SpiderConfig::load(&config_loader);
         
         // Starting server
         let tcp_listener = TcpListener::bind(format!("{}:{}", spider_config.host, spider_config.port)).await?;
@@ -34,20 +39,23 @@ impl Server {
         Ok(Self {
             listener: tcp_listener,
             host: spider_config.host,
-            port: spider_config.port
+            port: spider_config.port,
+            database_config: database_config
         })
     }
 
-    pub async fn handle_tcp_connections(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn handle_tcp_connections(&self, url_frontier: Arc<Mutex<UrlFrontier>>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         loop {
-            let (socket, addr) = self.listener.accept().await?;
+            let (socket, _) = self.listener.accept().await?;
+            let database_config = self.database_config.clone();
 
+            let frontier = url_frontier.clone();
             tokio::spawn(async move {
-                match handler::ClientHandler::handle_client(socket, addr).await {
+                match handler::ClientHandler::handle_client(socket, database_config, frontier).await {
                     Ok(_) => {},
-                    Err(e) => {
-                        raise_error!(CrawlerError, "Error from the crawler of address {}: {}", addr.to_string().red(), e);
-                    }
+                    Err(_) => {
+                        // TODO: if need, handle error
+                    } 
                 };
             });
         }

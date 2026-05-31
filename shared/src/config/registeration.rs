@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Serialize, Deserialize};
 use crate::register_configuration;
 use crate::config::core::{ConfigLoader, ConfigEntity, Configurations};
 
@@ -11,12 +11,12 @@ use crate::config::core::{ConfigLoader, ConfigEntity, Configurations};
 // ------------------------------------------------------------
 
 // -------------------- DATABASE CONFIG -----------------------
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize,)]
 struct DatabaseTopLevelConfig {
     database: DatabaseConfig
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize,)]
 pub struct DatabaseConfig {
     pub name: String,
     pub password: String,
@@ -54,12 +54,12 @@ port = 5001
 "#);
 
 // ----------------------- SPIDER CONFIG ----------------------
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize,)]
 struct SpiderTopLevelConfig {
     spider: SpiderConfig
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize,)]
 pub struct SpiderConfig {
     pub host: String,
     pub port: u16

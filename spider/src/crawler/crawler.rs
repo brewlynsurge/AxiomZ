@@ -2,13 +2,19 @@ use tokio::net::TcpStream;
 use std::io::Write;
 use crossterm::{cursor::{Hide, MoveTo, Show, position}, style::Stylize};
 use shared;
+use crate::proxy_rotator::ProxyRotator;
+use crate::scraper;
 
 // ----------------- CRAWLER ----------------------
-pub struct Crawler;
+pub struct Crawler {
+    stream: TcpStream,
+    pub proxy_rotator: ProxyRotator,
+    pub database_config: shared::config::DatabaseConfig
+}
 
 impl Crawler {
     pub async fn build() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        println!(" -- initializing system -- ");
+        println!(" {} initializing system {} ", "--".cyan().bold(), "--".cyan().bold());
 
         // Load spider configuration
         let spider_config = {
@@ -20,9 +26,29 @@ impl Crawler {
         };
 
         // Connect to server
-        Self::try_server_connection(&spider_config).await?;
+        let mut socket = Self::try_server_connection(&spider_config).await?;
 
-        todo!()
+        // Proxy Rotator
+        let proxy_rotator = ProxyRotator::new();
+        {
+            print!("   {} Initiaizing Proxy Rotator: ", "->".cyan().bold());
+            std::io::stdout().flush()?;
+            
+            proxy_rotator.initialize().await?;
+            println!("{}", "done".green().bold());
+        }
+        
+        // Get database configuration
+        let database_config: shared::config::DatabaseConfig = shared::socket::receive_data(&mut socket).await?;
+        println!("   {} Loading configurations: {}", "->".cyan().bold(), "done".green().bold());
+        println!("   {} {}\n", "->".cyan().bold(), "Initialization was successful".green());
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        
+        Ok(Self {
+            stream: socket,
+            proxy_rotator: proxy_rotator,
+            database_config: database_config
+        })
     }
 
     async fn try_server_connection(spider_config: &shared::config::SpiderConfig,) -> Result<TcpStream, Box<dyn std::error::Error + Send + Sync>> {
@@ -78,5 +104,19 @@ impl Crawler {
                 }
             }
         }
+    }
+
+    pub async fn start(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        loop {
+            match scraper::Scraper::scrap_page(&mut self.stream).await {
+                Ok(_) => {},
+                Err(e) => {
+                    eprintln!("{e}");
+                    todo!()
+                }
+            };
+            
+        }
+        
     }
 }

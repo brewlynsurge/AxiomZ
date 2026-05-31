@@ -9,7 +9,10 @@ resolver = "3"
 [workspace.dependencies]
 tokio = {version = "1.52.3", features = ["full"]}
 serde = {version="1.0.228", features=["derive"]}
+rand = "0.10.1"
+rand_distr = "0.6.0"
 toml = "1.1.2"
 crossterm = "0.29.0"
 bincode = "1"
+reqwest = { version = "0.13.4", features = ["socks", "json"]}
 sqlx = { version = "0.8.6", features = ["postgres", "runtime-tokio-rustls"]}
