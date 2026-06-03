@@ -12,7 +12,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("{} [Version {}]", "Spider".cyan().bold(), env!("CARGO_PKG_VERSION").italic());
     println!("(c) {}. All rights are reserved.\n", "AxiomZ".cyan().italic());
 
-    
     let url_frontier: Arc<Mutex<UrlFrontier>> = Arc::new(Mutex::new(UrlFrontier::new()));
 
     // Spawns spider server

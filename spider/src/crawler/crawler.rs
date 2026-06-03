@@ -1,15 +1,16 @@
-use tokio::net::TcpStream;
-use std::io::Write;
+use tokio::{net::TcpStream, sync::Mutex};
+use std::{io::Write, sync::Arc};
 use crossterm::{cursor::{Hide, MoveTo, Show, position}, style::Stylize};
 use shared;
 use crate::proxy_rotator::ProxyRotator;
 use crate::scraper;
+use spider_shared::database::AxiomZDatabase;
 
 // ----------------- CRAWLER ----------------------
 pub struct Crawler {
-    stream: TcpStream,
-    pub proxy_rotator: ProxyRotator,
-    pub database_config: shared::config::DatabaseConfig
+    stream: Arc<Mutex<TcpStream>>,
+    pub scraper: scraper::Scraper,
+    pub database: Arc<Mutex<AxiomZDatabase>>
 }
 
 impl Crawler {
@@ -38,19 +39,24 @@ impl Crawler {
             println!("{}", "done".green().bold());
         }
         
-        // Get database configuration
+        // Initializing Database
+        print!("   {} Connecting to database: ", "->".cyan().bold());
+        std::io::stdout().flush()?;
         let database_config: shared::config::DatabaseConfig = shared::socket::receive_data(&mut socket).await?;
-        println!("   {} Loading configurations: {}", "->".cyan().bold(), "done".green().bold());
-        println!("   {} {}\n", "->".cyan().bold(), "Initialization was successful".green());
+        let axiomz_database = AxiomZDatabase::connect(&database_config).await?;
+        println!("{}", "done".green().bold());
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         
+        // Initializing scrapper
+        let aziomz_scraper = scraper::Scraper::new(proxy_rotator);
+        
         Ok(Self {
-            stream: socket,
-            proxy_rotator: proxy_rotator,
-            database_config: database_config
+            stream: Arc::new(Mutex::new(socket)),
+            scraper: aziomz_scraper,
+            database: Arc::new(Mutex::new(axiomz_database))
         })
     }
-
+    
     async fn try_server_connection(spider_config: &shared::config::SpiderConfig,) -> Result<TcpStream, Box<dyn std::error::Error + Send + Sync>> {
         let (animation_tx, animation_rx) = tokio::sync::watch::channel(true);
 
@@ -107,16 +113,6 @@ impl Crawler {
     }
 
     pub async fn start(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        loop {
-            match scraper::Scraper::scrap_page(&mut self.stream).await {
-                Ok(_) => {},
-                Err(e) => {
-                    eprintln!("{e}");
-                    todo!()
-                }
-            };
-            
-        }
-        
+        self.scraper.handle_scraper_task(self.stream.clone()).await
     }
 }

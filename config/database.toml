@@ -1,6 +1,6 @@
 [database]
-name = "Database name"
-password = "password"
-username = "user"
+name = "AxiomZDatabase"
+password = "rohan2008"
+username = "postgres"
 host = "127.0.0.1"
-port = 5001
+port = 5432

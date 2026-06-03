@@ -11,6 +11,10 @@ path = "src/spider/main.rs"
 name = "crawler"
 path = "src/crawler/main.rs"
 
+[lib]
+name = "spider_shared"
+path = "src/lib.rs"
+
 [dependencies]
 tokio.workspace = true
 crossterm.workspace = true

@@ -11,16 +11,17 @@ impl ClientHandler {
         // Send database configuration to the crawler
         shared::socket::send_data(&mut socket, &database_config).await?;
 
-        match shared::socket::receive_data::<String>(&mut socket).await {
-            Ok(command) => {
-                Self::handle_command(&command, &mut socket, url_frontier).await.unwrap();
-            },
-            Err(_) => {
-                //TODO
-            }
-        };
+        loop {
+            match shared::socket::receive_data::<String>(&mut socket).await {
+                Ok(command) => {
+                    Self::handle_command(&command, &mut socket, url_frontier.clone()).await.unwrap();
+                },
+                Err(_) => {
+                    //TODO
+                }
+            };
+        }
         
-        Ok(())
     }
 
     async fn handle_command(command: &str, stream: &mut TcpStream, url_frontier: Arc<Mutex<UrlFrontier>>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
