@@ -59,7 +59,7 @@ impl ProxyRotator {
             dist.sample(&mut rng)
         };
 
-        proxies_vec[selected_idx].set_cooldown(tokio::time::Duration::from_secs(10));
+        proxies_vec[selected_idx].set_cooldown(tokio::time::Duration::from_secs(3));
         let proxy = {
             let proxy_url = format!("http://{}:{}", proxies_vec[selected_idx].ip, proxies_vec[selected_idx].port);
             reqwest::Proxy::http(proxy_url)?

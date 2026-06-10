@@ -9,8 +9,7 @@ use spider_shared::database::AxiomZDatabase;
 // ----------------- CRAWLER ----------------------
 pub struct Crawler {
     stream: Arc<Mutex<TcpStream>>,
-    pub scraper: scraper::Scraper,
-    pub database: Arc<Mutex<AxiomZDatabase>>
+    pub scraper: scraper::Scraper
 }
 
 impl Crawler {
@@ -48,12 +47,11 @@ impl Crawler {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         
         // Initializing scrapper
-        let aziomz_scraper = scraper::Scraper::new(proxy_rotator);
+        let aziomz_scraper = scraper::Scraper::new(proxy_rotator, axiomz_database);
         
         Ok(Self {
             stream: Arc::new(Mutex::new(socket)),
-            scraper: aziomz_scraper,
-            database: Arc::new(Mutex::new(axiomz_database))
+            scraper: aziomz_scraper
         })
     }
     

@@ -1,6 +1,7 @@
 pub mod crawler;
 pub mod proxy_rotator;
 pub mod scraper;
+pub mod crawler_animator;
 
 use crossterm::style::Stylize;
 

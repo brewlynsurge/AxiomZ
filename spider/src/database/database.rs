@@ -1,3 +1,4 @@
+use sqlx::Executor;
 use shared::config::DatabaseConfig;
 
 // ----------------- AXIOMZ DATABASE ----------------------
@@ -17,6 +18,13 @@ impl AxiomZDatabase {
 
     pub async fn run_migrations(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         sqlx::migrate!("./migrations").run(&self.pool).await?;
+        Ok(())
+    }
+    
+    // NOTE: Only use while developing application
+    pub async fn reset_database(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.pool.execute("DROP SCHEMA public CASCADE").await?;
+        self.pool.execute("CREATE SCHEMA public").await?;
         Ok(())
     }
 }
