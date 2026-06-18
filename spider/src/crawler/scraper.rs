@@ -11,7 +11,7 @@ use shared;
 use spider_shared::database::AxiomZDatabase;
 
 
-use crate::crawler_animator::Animator;
+use crate::crawler_animator::CrawlerAnimator;
 
 // ----------------- SCRAPER ----------------------
 pub struct Scraper {
@@ -104,23 +104,25 @@ impl Scraper {
         let database = database.lock().await;
         let tx = database.pool.begin().await?;
 
-        let mut crawler_animator = Animator::new();
-        crawler_animator.print_head()?;
-        
+        let mut crawler_animator = CrawlerAnimator::new();
+        crawler_animator.initialize().await?;
+
+        let mut counter = 1;
         while let Some(page_container) = rx.recv().await {
             let page_url = page_container.url.clone();
 
-            let mut crawler_animator = crawler_animator.process(&page_url).await?;
-            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-            crawler_animator.to_saving_mode().await?;
+            let animator_instance = crawler_animator.create_instance(&page_url).await?;
+            animator_instance.to_processing().await?;
+            tokio::time::sleep(tokio::time::Duration::from_millis(3000)).await;
+            animator_instance.to_saving().await?;
+            tokio::time::sleep(tokio::time::Duration::from_millis(3000)).await;
+            if counter % 3 == 0 {
+                animator_instance.to_failure(Some("The website blocked you".to_string())).await?;
+            } else{
+                animator_instance.to_success().await?;
+            }
 
-            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-            let mut crawler_animator = crawler_animator.success(&page_url).await?;
-            //let mut crawler_animator = crawler_animator.failure(&page_url, Some("The site blocked the scrapper, error 404".to_string())).await?;
-
-            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-            let mut crawler_animator = crawler_animator.reset().await;
-            
+            counter += 1;
         }
 
         Ok(())
