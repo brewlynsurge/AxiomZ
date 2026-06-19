@@ -3,13 +3,13 @@ use std::{io::Write, sync::Arc};
 use crossterm::{cursor::{Hide, MoveTo, Show, position}, style::Stylize};
 use shared;
 use crate::proxy_rotator::ProxyRotator;
-use crate::scraper;
+use crate::scraper::AxiomZScraper;
 use spider_shared::database::AxiomZDatabase;
 
 // ----------------- CRAWLER ----------------------
 pub struct Crawler {
     stream: Arc<Mutex<TcpStream>>,
-    pub scraper: scraper::Scraper
+    scraper: AxiomZScraper
 }
 
 impl Crawler {
@@ -47,7 +47,7 @@ impl Crawler {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         
         // Initializing scrapper
-        let aziomz_scraper = scraper::Scraper::new(proxy_rotator, axiomz_database);
+        let aziomz_scraper = AxiomZScraper::new(proxy_rotator, axiomz_database);
         
         Ok(Self {
             stream: Arc::new(Mutex::new(socket)),
@@ -111,6 +111,6 @@ impl Crawler {
     }
 
     pub async fn start(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.scraper.handle_scraper_task(self.stream.clone()).await
+        self.scraper.start(self.stream.clone()).await
     }
 }
