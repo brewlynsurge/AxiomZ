@@ -9,7 +9,7 @@ CREATE TABLE documents (
     description TEXT DEFAULT NULL,
 
     document_len INTEGER NOT NULL,
-    pagerank REAL NOT NULL DEFAULT 0,
+    -- pagerank REAL NOT NULL DEFAULT 0,
     
     UNIQUE(url_hash)
 );

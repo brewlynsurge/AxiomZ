@@ -24,4 +24,6 @@ rand_distr.workspace = true
 sqlx.workspace = true
 reqwest.workspace = true
 serde.workspace = true
+rust-stemmers.workspace = true
+scraper = "0.27.0"
 shared = {path="../shared"}

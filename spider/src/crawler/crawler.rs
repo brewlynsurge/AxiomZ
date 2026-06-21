@@ -3,7 +3,7 @@ use std::{io::Write, sync::Arc};
 use crossterm::{cursor::{Hide, MoveTo, Show, position}, style::Stylize};
 use shared;
 use crate::proxy_rotator::ProxyRotator;
-use crate::scraper::AxiomZScraper;
+use crate::axiomz_scraper::AxiomZScraper;
 use spider_shared::database::AxiomZDatabase;
 
 // ----------------- CRAWLER ----------------------

@@ -1,7 +1,11 @@
 use std::sync::Arc;
+use reqwest::Response;
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, mpsc};
-use url::Url;
+use scraper::{Html, Selector};
+use std::collections::{HashMap, HashSet};
+use std::sync::LazyLock;
+use rust_stemmers;
 
 use crate::proxy_rotator::ProxyRotator;
 use shared;
@@ -169,11 +173,12 @@ impl PageProcessor {
         
         while let Some(fetched_result) = params.fetcher_rx.recv().await {
             let animator_instance = params.animator.create_instance(&fetched_result.url.clone()).await?;
-            let page_compiler = PageCompiler {
+            let mut page_compiler = PageCompiler {
                 url: fetched_result.url,
-                response: fetched_result.response,
+                response: Some(fetched_result.response),
                 database: params.database.clone(),
-                animator_instance: animator_instance
+                animator_instance: animator_instance,
+                stemmer: rust_stemmers::Stemmer::create(rust_stemmers::Algorithm::English)
             };
 
             match page_compiler.compile_page().await {
@@ -187,33 +192,39 @@ impl PageProcessor {
 }
 
 // ------------------- PAGE COMPILER ----------------------
+static STOP_WORDS: LazyLock<Vec<&str>> = LazyLock::new(|| {
+    include_str!("./../../stopwords.txt")
+        .lines()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect()
+});
+
+
 struct PageCompiler {
     url: String,
-    response: Result<reqwest::Response, Box<dyn std::error::Error + Send + Sync>>,
+    response: Option<Result<reqwest::Response, Box<dyn std::error::Error + Send + Sync>>>,
     database: Arc<Mutex<AxiomZDatabase>>,
-    animator_instance: crawler_animator::AnimatorInstance
+    animator_instance: crawler_animator::AnimatorInstance,
+    stemmer: rust_stemmers::Stemmer
 }
 
 impl PageCompiler {
-    pub async fn compile_page(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn compile_page(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.animator_instance.to_processing().await?;
 
         let response = match self.handle_response_error().await? {
             Some(res) => res,
             None => return Ok(())
         };
-        
-        //let database_tx = {
-        //    let database = self.database.lock().await;
-        //    database.pool.begin().await?
-        //};
+        self.extract_page(response).await?;
         
         
         Ok(())
     }
 
-    async fn handle_response_error(&self) -> Result<Option<&reqwest::Response>, Box<dyn std::error::Error + Send + Sync>> {
-        match self.response.as_ref() {
+    async fn handle_response_error(&mut self) -> Result<Option<reqwest::Response>, Box<dyn std::error::Error + Send + Sync>> {
+        match self.response.take().unwrap() {
             Ok(res) => {
                 match res.status() {
                     reqwest::StatusCode::OK => {
@@ -239,133 +250,165 @@ impl PageCompiler {
             }
         };
     }
-}
-/* 
-// ----------------- SCRAPER ----------------------
-pub struct Scraper {
-    proxy_rotator: Arc<Mutex<ProxyRotator>>,
-    database: Arc<Mutex<AxiomZDatabase>>,
-}
 
-impl Scraper {
-    pub fn new(proxy_rotator: ProxyRotator, axiomz_database: AxiomZDatabase) -> Self {
-        Self {
-            proxy_rotator: Arc::new(Mutex::new(proxy_rotator)),
-            database: Arc::new(Mutex::new(axiomz_database)),
-        }
-    }
+    async fn extract_page(&self, response: Response) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let html = response.text().await?;
+        let document = Html::parse_document(&html);
 
-    pub async fn handle_scraper_task(&self, stream: Arc<Mutex<TcpStream>>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let (tx, rx) = mpsc::channel::<PageContainer>(20);
+        let page_title = {
+            let title = Selector::parse("title").unwrap();
+            document
+                .select(&title)
+                .next()
+                .map(|e| e.text().collect::<String>())
+                .unwrap_or_else(|| "Untitled".to_string())
+        };
 
-        // Spawing Scraper task
-        let stream_clone = stream.clone();
-        let proxy_rotator = self.proxy_rotator.clone();
-        let scrape_page_task = tokio::spawn(async move {
-            Self::hande_scrape_page_task(tx, stream_clone, proxy_rotator).await
-        });
+        let words = self.filter_out_words(&document);
+        let links = UrlFiter::filter(&self.url, &document)?;
 
-        // Spawing Processing task
-        let database_clone = self.database.clone();
-        let process_page_task = tokio::spawn(async move { Self::handle_process_page_task(rx, database_clone).await });
-
-        // Spawn results
-        let (_, process_result) = tokio::join!(scrape_page_task, process_page_task);
-        process_result??;
-
+        drop(document);
+        
         Ok(())
     }
 
-    async fn hande_scrape_page_task(tx: mpsc::Sender<PageContainer>, stream: Arc<Mutex<TcpStream>>, proxy_rotator: Arc<Mutex<ProxyRotator>>) {
-        let mut proxy_rotator = proxy_rotator.lock().await;
+    fn filter_out_words(&self, document: &Html) -> HashMap<String, usize> {
+        let mut content_holder:HashMap<String, usize> = HashMap::new();
 
-        loop {
-            match Self::scrape_page(tx.clone(), &mut proxy_rotator, stream.clone()).await {
-                Ok(_) => {}
-                Err(e) => {
-                    eprintln!("Error in scraping page: {e}")
+        let content_selector = Selector::parse("p,h1,h2,h3,h4,h5,h6,li,blockquote").unwrap();
+        for element in document.select(&content_selector) {
+            let text = element.text().collect::<Vec<_>>().join(" ");
+
+            for word in text.split_whitespace() {
+                // Filter word and skip other languages
+                if !word.is_ascii() { continue; }
+                
+                let word: String = word
+                    .chars()
+                    .filter(|c| c.is_ascii_alphabetic())
+                    .flat_map(|c| c.to_lowercase())
+                    .collect();
+                if word.is_empty() {continue;}
+
+                if STOP_WORDS.contains(&word.as_str()) { continue;} // Remove stop words
+                // Stemmerize word
+                let word = self.stemmer.stem(&word).to_string();
+
+                // Store word in content_holder
+                if let Some(count) = content_holder.get(&word) {
+                    content_holder.insert(word, count + 1);
+                } else {
+                    content_holder.insert(word, 1);
+                }
+            }
+            
+        }
+        
+
+        return content_holder;
+    }
+
+}
+
+
+// ------------------- URL FILTER ----------------------
+struct UrlFiter;
+
+impl UrlFiter {
+    const URL_PARAMETER_BLACKLIST: [&str;14] = [
+        "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "fbclid", "gclid",
+        "msclkid", "session", "sessionid", "sid", "phpsessid", "token", "auth"
+    ];
+
+    const URL_EXTENSION_BLACKLIST: [&str;28] = [
+        "jpg", "jpeg", "png", "gif", "webp", "svg", "mp4", "js", "ppt", "pptx", "tar", "gz", "exe", "msi",
+        "avi", "mov", "zip", "rar", "7z", "pdf", "css", "ico", "doc", "docx", "bz2", "apk", "iso", "dmg"
+    ];
+    
+    pub fn filter(base_url: &str, document: &Html) -> Result<HashSet<String>, Box<dyn std::error::Error + Send + Sync>> {
+        let base_url = url::Url::parse(base_url)?;
+        let selector = Selector::parse("a").unwrap();
+
+        let mut filtered_links = HashSet::new();
+        for element in document.select(&selector) {
+            if let Some(href) = element.value().attr("href") {
+                if let Ok(abs_url) = base_url.join(href) {
+                    if abs_url.scheme() == "http" || abs_url.scheme() == "https" {
+                        let mut fetched_url = abs_url;
+                        fetched_url.set_fragment(None); // Removing '#' sections
+                        Self::filter_default_ports(&mut fetched_url); // Removing default ports
+
+                        // Filter out parameters which are in blacklist
+                        Self::filter_parameters(&mut fetched_url);
+
+                        // Filter media files
+                        let url_path = std::path::Path::new(fetched_url.path());
+                        if let Some(path_extension) = url_path.extension() {
+                            let path_extension = path_extension.to_string_lossy().to_ascii_lowercase();
+                            if Self::URL_EXTENSION_BLACKLIST.contains(&path_extension.as_str()) {
+                                continue;
+                            }
+                        }
+                        
+                        // Skip Very long urls
+                        if fetched_url.as_str().len() > 2048 {
+                            continue;
+                        }
+
+                        // Skip some url path traps
+                        /*
+                         * This fiteration is little too aggressive
+                         * In later versions change it
+                         */
+                        if let Some(path_str) = url_path.to_str() {
+                            if path_str.contains("/search") || path_str.contains("/find") || path_str.contains("/query") || path_str.contains("/results") {
+                                continue;
+                            }
+                        }
+
+                        // Skip url's containing usernames (rare but good to skip)
+                        if !fetched_url.username().is_empty() {
+                            continue;
+                        }
+                        
+                        filtered_links.insert(fetched_url.to_string());
+                    }
                 }
             }
         }
+        
+        Ok(filtered_links)
     }
 
-    async fn scrape_page(tx: mpsc::Sender<PageContainer>, proxy_rotator: &mut tokio::sync::MutexGuard<'_, ProxyRotator>, stream: Arc<Mutex<TcpStream>>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let page_url = {
-            let mut stream = stream.lock().await;
-            shared::socket::send_data::<String>(&mut stream, &String::from("GET_URL")).await?;
-            shared::socket::receive_data::<String>(&mut stream).await?
-        };
-
-        let proxy = proxy_rotator.get_proxy().await?;
-
-        let res = Self::fetch_page(&page_url, proxy).await;
-        let pg_container = PageContainer {
-            url: page_url,
-            response: res,
-        };
-
-        tx.send(pg_container).await?;
-
-        Ok(())
-    }
-
-    async fn fetch_page(page_url: &str, proxy: reqwest::Proxy) -> Result<reqwest::Response, Box<dyn std::error::Error + Send + Sync>> {
-        let client = reqwest::Client::builder()
-            .proxy(proxy)
-            .timeout(tokio::time::Duration::from_secs(40))
-            .connect_timeout(tokio::time::Duration::from_secs(20))
-            .redirect(reqwest::redirect::Policy::limited(10))
-            .build()?;
-
-        let response = client
-            .get(page_url)
-            .header("Accept", "text/html")
-            .header("Accept-Language", "en-US,en;q=0.9")
-            .header("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",)
-            .send()
-            .await?;
-
-        Ok(response)
-    }
-
-    async fn handle_process_page_task(mut rx: mpsc::Receiver<PageContainer>, database: Arc<Mutex<AxiomZDatabase>>, ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let database = database.lock().await;
-        let tx = database.pool.begin().await?;
-
-        let mut crawler_animator = CrawlerAnimator::new();
-        crawler_animator.initialize().await?;
-
-        let mut counter = 1;
-        while let Some(page_container) = rx.recv().await {
-            let page_url = page_container.url.clone();
-
-            let animator_instance = crawler_animator.create_instance(&page_url).await?;
-            animator_instance.to_processing().await?;
-            tokio::time::sleep(tokio::time::Duration::from_millis(3000)).await;
-            animator_instance.to_saving().await?;
-            tokio::time::sleep(tokio::time::Duration::from_millis(3000)).await;
-            if counter % 3 == 0 {
-                animator_instance.to_failure(Some("The website blocked you".to_string())).await?;
-            } else{
-                animator_instance.to_success().await?;
+    fn filter_default_ports(fetched_url: &mut url::Url) {
+        match (fetched_url.scheme(), fetched_url.port()) {
+            ("http", Some(80)) => {
+                let _ = fetched_url.set_port(None);
             }
-
-            counter += 1;
+            ("https", Some(443)) => {
+                let _ = fetched_url.set_port(None);
+            }
+            _ => {}
         }
-
-        Ok(())
     }
 
-    async fn process_page() {
-
+    fn filter_parameters(fetched_url: &mut url::Url) {
+        let filtered_params: Vec<_> = fetched_url
+            .query_pairs()
+            .filter(|(k, _)| {
+                !Self::URL_PARAMETER_BLACKLIST
+                    .iter()
+                    .any(|blocked| blocked.eq_ignore_ascii_case(k))
+            })
+            .map(|(k, v)| (k.into_owned(), v.into_owned()))
+            .collect::<Vec<_>>();
+        fetched_url.set_query(None);
+        
+        if !filtered_params.is_empty() {
+            let mut query_params = fetched_url.query_pairs_mut();
+            for (k, v) in filtered_params {
+                query_params.append_pair(&k, &v);
+            }
+        }
     }
 }
-
-// ----------------- PAGE CONTAINER ----------------------
-#[derive(Debug)]
-struct PageContainer {
-    pub url: String,
-    pub response: Result<reqwest::Response, Box<dyn std::error::Error + Send + Sync>>,
-}
-
-*/
