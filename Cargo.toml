@@ -16,5 +16,6 @@ crossterm = "0.29.0"
 rust-stemmers = "1.2.0"
 url = "2.5.8"
 bincode = "1"
+xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
 reqwest = { version = "0.13.4", features = ["socks", "json"]}
 sqlx = { version = "0.8.6", features = ["postgres", "runtime-tokio-rustls", "macros", "migrate"]}

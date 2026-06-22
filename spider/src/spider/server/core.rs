@@ -39,7 +39,8 @@ impl Server {
 
         // Connecting to database
         let axiomz_database = AxiomZDatabase::connect(&database_config).await?;
-        //axiomz_database.reset_database().await?; // Use only when needed
+        println!("Reseting database...");
+        axiomz_database.reset_database().await?; // Use only when needed
         axiomz_database.run_migrations().await?;
 
         Ok(Self {

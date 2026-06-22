@@ -6,10 +6,11 @@ use scraper::{Html, Selector};
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 use rust_stemmers;
+use xxhash_rust::xxh3::xxh3_64;
 
 use crate::proxy_rotator::ProxyRotator;
 use shared;
-use spider_shared::database::AxiomZDatabase;
+use spider_shared::database::{AxiomZDatabase, DatabaseDocumentsTable, DatabaseTermsTable, DatabasePostingsTable, DatabaseFrontierUrlsTable};
 
 
 use crate::crawler_animator::{self, CrawlerAnimator};
@@ -17,7 +18,7 @@ use crate::crawler_animator::{self, CrawlerAnimator};
 
 // ----------------- AXIOMZ SCRAPER ----------------------
 pub struct AxiomZScraper {
-    database: Arc<Mutex<AxiomZDatabase>>,
+    pub database: Arc<Mutex<AxiomZDatabase>>,
     fetcher: Fetcher,
     processor: PageProcessor
 }
@@ -140,7 +141,7 @@ impl Fetcher {
 
 // ------------------- PAGE PROCESSOR ----------------------
 struct ProcessorParameters {
-    stream: Arc<Mutex<tokio::net::TcpStream>>,
+    stream: Arc<Mutex<TcpStream>>,
     database: Arc<Mutex<AxiomZDatabase>>,
     fetcher_rx: mpsc::Receiver<FetcherResult>,
     animator: CrawlerAnimator
@@ -177,6 +178,7 @@ impl PageProcessor {
                 url: fetched_result.url,
                 response: Some(fetched_result.response),
                 database: params.database.clone(),
+                stream: params.stream.clone(),
                 animator_instance: animator_instance,
                 stemmer: rust_stemmers::Stemmer::create(rust_stemmers::Algorithm::English)
             };
@@ -205,6 +207,7 @@ struct PageCompiler {
     url: String,
     response: Option<Result<reqwest::Response, Box<dyn std::error::Error + Send + Sync>>>,
     database: Arc<Mutex<AxiomZDatabase>>,
+    stream: Arc<Mutex<TcpStream>>,
     animator_instance: crawler_animator::AnimatorInstance,
     stemmer: rust_stemmers::Stemmer
 }
@@ -217,8 +220,7 @@ impl PageCompiler {
             Some(res) => res,
             None => return Ok(())
         };
-        self.extract_page(response).await?;
-        
+        self.extract_page(response).await?; 
         
         Ok(())
     }
@@ -253,23 +255,127 @@ impl PageCompiler {
 
     async fn extract_page(&self, response: Response) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let html = response.text().await?;
-        let document = Html::parse_document(&html);
 
-        let page_title = {
-            let title = Selector::parse("title").unwrap();
-            document
-                .select(&title)
-                .next()
-                .map(|e| e.text().collect::<String>())
-                .unwrap_or_else(|| "Untitled".to_string())
+        let (page_title, page_description, words, links) = {
+            let document = Html::parse_document(&html);
+            
+            let page_title = Self::get_title(&document);   
+            let page_description = Self::get_description(&document);
+            let words = self.filter_out_words(&document);
+            let links = UrlFiter::filter(&self.url, &document)?;
+
+            (page_title, page_description, words, links)
         };
 
-        let words = self.filter_out_words(&document);
-        let links = UrlFiter::filter(&self.url, &document)?;
+        self.animator_instance.to_saving().await?;
+        match self.save_page(page_title, page_description, words, links).await {
+            Ok(_) => {self.animator_instance.to_success().await?}
+            Err(e) => {self.animator_instance.to_failure(Some(e.to_string())).await?;}
+        }
 
-        drop(document);
+        // Sending processing finished signal
+        {
+            let mut stream = self.stream.lock().await;
+            shared::socket::send_data::<String>(&mut stream, &String::from("URL_PROCESSED")).await?;
+            shared::socket::send_data::<String>(&mut stream, &String::from(&self.url)).await?;
+        }
         
         Ok(())
+    }
+
+    async fn save_page(&self, page_title: String, page_description: String, words: HashMap<String, usize>, links: HashSet<String>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let mut tx = {
+            let database = self.database.lock().await;
+            database.pool.begin().await?
+        };
+        let document_length: usize = words.values().sum();
+        let page_url_hash: i64 = xxh3_64(self.url.as_bytes()) as i64;
+        
+        // 1. Insert into document table
+        let document_id = match DatabaseDocumentsTable::insert(&mut tx, &self.url, page_url_hash, &page_title, &page_description, document_length).await? {
+            Some(id) => id,
+            None => {
+                tx.commit().await?; // Duplicate url_hash, already indexed. Nothing more to do.
+                return Ok(());
+            }
+        };
+
+        // If no words to insert
+        if words.is_empty() {
+            tx.commit().await?;
+            return Ok(());
+        }
+
+        // 2. Update all terms of this page
+        let term_rows = DatabaseTermsTable::insert_terms(&mut tx, &words).await?;
+
+        // 3. Build postings
+        DatabasePostingsTable::insert_postings(&mut tx, &words, term_rows, document_id, document_length).await?;
+
+        // 4. Save urls for Url frontier
+        DatabaseFrontierUrlsTable::insert_urls(&mut tx, &links).await?;
+    
+        tx.commit().await?;
+        Ok(())
+    }
+
+    fn get_title(document: &Html) -> String {
+        let title = Selector::parse("title").unwrap();
+        document
+            .select(&title)
+            .next()
+            .map(|e| e.text().collect::<String>())
+            .unwrap_or_else(|| "Untitled".to_string())
+    }
+
+    fn get_description(document: &Html) -> String {
+        let meta_selectors = [
+            r#"meta[property="og:description"]"#,
+            r#"meta[name="twitter:description"]"#,
+            r#"meta[name="description"]"#,
+        ];
+
+        // 1. First check if there is any meta description
+        for css in meta_selectors {
+            let selector = Selector::parse(css).unwrap();
+
+            if let Some(element) = document.select(&selector).next() {
+                if let Some(content) = element.value().attr("content") {
+                    let content = content.trim();
+                    if !content.is_empty() { return content.to_string();}
+                }
+            }
+        }
+
+        // 2. Take description from paragraph
+        const MAX_WORDS: usize = 50;
+
+        let p_selector = Selector::parse("p").unwrap();
+        for p in document.select(&p_selector) {
+            let text = p.text().collect::<Vec<_>>().join(" ");
+            let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+
+            let words: Vec<&str> = text.split_whitespace().collect();
+            if words.len() >= 10 {
+                let description = if words.len() > MAX_WORDS {
+                    format!("{}...", words[..MAX_WORDS].join(" "))
+                } else { text };
+
+                return description;
+            }
+        }
+
+        // 3. Use Page title as description
+        let title_selector = Selector::parse("title").unwrap();
+        if let Some(title) = document.select(&title_selector).next() {
+            let text = title.text().collect::<Vec<_>>().join(" ");
+            let text = text.trim();
+    
+            if !text.is_empty() { return text.to_string(); }
+        }
+
+        // 4. Else return an empty string
+        return String::new()
     }
 
     fn filter_out_words(&self, document: &Html) -> HashMap<String, usize> {
@@ -301,13 +407,10 @@ impl PageCompiler {
                     content_holder.insert(word, 1);
                 }
             }
-            
         }
-        
 
         return content_holder;
     }
-
 }
 
 

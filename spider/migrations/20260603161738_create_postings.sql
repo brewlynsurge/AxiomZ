@@ -2,7 +2,7 @@
 CREATE TABLE postings (
     term_id BIGINT REFERENCES terms(id) ON DELETE CASCADE,
     doc_id BIGINT REFERENCES documents(id) ON DELETE CASCADE,
-    tf SMALLINT NOT NULL,
+    tf FLOAT NOT NULL,
 
     PRIMARY KEY(term_id, doc_id)
 );
