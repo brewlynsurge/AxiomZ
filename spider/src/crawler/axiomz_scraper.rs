@@ -1,6 +1,5 @@
 use std::sync::Arc;
 use reqwest::Response;
-use tokio::net::TcpStream;
 use tokio::sync::{Mutex, mpsc};
 use scraper::{Html, Selector};
 use std::collections::{HashMap, HashSet};
@@ -11,7 +10,7 @@ use xxhash_rust::xxh3::xxh3_64;
 use crate::proxy_rotator::ProxyRotator;
 use shared;
 use spider_shared::database::{AxiomZDatabase, DatabaseDocumentsTable, DatabaseTermsTable, DatabasePostingsTable, DatabaseFrontierUrlsTable};
-
+use shared::spider_api::CrawlerAPI;
 
 use crate::crawler_animator::{self, CrawlerAnimator};
 
@@ -45,9 +44,9 @@ impl AxiomZScraper {
         }
     }
 
-    pub async fn start(&mut self, stream: Arc<Mutex<TcpStream>>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let fetcher_handler = self.fetcher.spawn(stream.clone()).await?;
-        let processor_handler = self.processor.spawn(stream.clone()).await?;
+    pub async fn start(&mut self, crawler_api: Arc<Mutex<CrawlerAPI>>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let fetcher_handler = self.fetcher.spawn(crawler_api.clone()).await?;
+        let processor_handler = self.processor.spawn(crawler_api.clone()).await?;
 
         let (fetcher_result, processor_handler) = tokio::join!(fetcher_handler, processor_handler);
         fetcher_result??;
@@ -61,7 +60,7 @@ impl AxiomZScraper {
 struct FetcherParameters {
     proxy_rotator: ProxyRotator,
     fetcher_tx: mpsc::Sender<FetcherResult>,
-    stream: Arc<Mutex<TcpStream>>
+    crawler_api: Arc<Mutex<CrawlerAPI>>
 }
 
 struct FetcherResult {
@@ -76,11 +75,11 @@ struct Fetcher {
 }
 
 impl Fetcher {
-    pub async fn spawn(&mut self, stream: Arc<Mutex<TcpStream>>) -> Result<tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn spawn(&mut self, crawler_api: Arc<Mutex<CrawlerAPI>>) -> Result<tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>, Box<dyn std::error::Error + Send + Sync>> {
         let params = FetcherParameters {
             proxy_rotator: self.proxy_rotator.take().unwrap(),
             fetcher_tx: self.fetcher_tx.clone(),
-            stream: stream
+            crawler_api: crawler_api
         };
 
         let handler = tokio::spawn(async move {
@@ -102,9 +101,8 @@ impl Fetcher {
 
     async fn fetch_page(params: &mut FetcherParameters) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let page_url = {
-            let mut stream = params.stream.lock().await;
-            shared::socket::send_data::<String>(&mut stream, &String::from("GET_URL")).await?;
-            shared::socket::receive_data::<String>(&mut stream).await?
+            let mut crawler_api = params.crawler_api.lock().await;
+            crawler_api.call_get_url().await?
         };
 
         let proxy = params.proxy_rotator.get_proxy().await?;
@@ -141,7 +139,7 @@ impl Fetcher {
 
 // ------------------- PAGE PROCESSOR ----------------------
 struct ProcessorParameters {
-    stream: Arc<Mutex<TcpStream>>,
+    crawler_api: Arc<Mutex<CrawlerAPI>>,
     database: Arc<Mutex<AxiomZDatabase>>,
     fetcher_rx: mpsc::Receiver<FetcherResult>,
     animator: CrawlerAnimator
@@ -154,9 +152,9 @@ struct PageProcessor {
 }
 
 impl PageProcessor {
-    pub async fn spawn(&mut self, stream: Arc<Mutex<TcpStream>>) -> Result<tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn spawn(&mut self, crawler_api: Arc<Mutex<CrawlerAPI>>) -> Result<tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>, Box<dyn std::error::Error + Send + Sync>> {
         let processor_params = ProcessorParameters {
-            stream: stream,
+            crawler_api: crawler_api,
             database: self.database.clone(),
             fetcher_rx: self.fetcher_rx.take().unwrap(),
             animator: CrawlerAnimator::new()
@@ -178,7 +176,7 @@ impl PageProcessor {
                 url: fetched_result.url,
                 response: Some(fetched_result.response),
                 database: params.database.clone(),
-                stream: params.stream.clone(),
+                crawler_api: params.crawler_api.clone(),
                 animator_instance: animator_instance,
                 stemmer: rust_stemmers::Stemmer::create(rust_stemmers::Algorithm::English)
             };
@@ -207,7 +205,7 @@ struct PageCompiler {
     url: String,
     response: Option<Result<reqwest::Response, Box<dyn std::error::Error + Send + Sync>>>,
     database: Arc<Mutex<AxiomZDatabase>>,
-    stream: Arc<Mutex<TcpStream>>,
+    crawler_api: Arc<Mutex<CrawlerAPI>>,
     animator_instance: crawler_animator::AnimatorInstance,
     stemmer: rust_stemmers::Stemmer
 }
@@ -275,9 +273,8 @@ impl PageCompiler {
 
         // Sending processing finished signal
         {
-            let mut stream = self.stream.lock().await;
-            shared::socket::send_data::<String>(&mut stream, &String::from("URL_PROCESSED")).await?;
-            shared::socket::send_data::<String>(&mut stream, &String::from(&self.url)).await?;
+            let mut crawler_api = self.crawler_api.lock().await;
+            crawler_api.call_url_ok(&self.url).await?;
         }
         
         Ok(())
