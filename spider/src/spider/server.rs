@@ -1,7 +1,11 @@
+use tokio::net::TcpListener;
+use crossterm::{cursor, style::Stylize};
+use std::io::{Write, Stdout};
+use std::process::exit;
+use std::thread;
+
 use spider_shared::database::AxiomZDatabase;
-use crossterm::{cursor, style::Stylize, terminal};
-use std::{io::{Stdout, Write}, process::exit, thread};
-use shared::spider_api::ServerAPI;
+use crate::terminal;
 
 // ----------------- SERVER GLOBALS ----------------------
 const RESET_DATABASE: bool = true;
@@ -10,7 +14,7 @@ const RESET_DATABASE: bool = true;
 pub struct AxiomZServer {
     _cursor_guard: CursorGuard,
     configurations: Option<Configurations>,
-    server_api: Option<ServerAPI>,
+    server_core: Option<ServerCore>,
     database: Option<AxiomZDatabase>
 }
 
@@ -21,7 +25,7 @@ impl AxiomZServer {
         Self {
             _cursor_guard: cursor_guard,
             configurations: None,
-            server_api: None,
+            server_core: None,
             database: None
         }
     }
@@ -30,21 +34,49 @@ impl AxiomZServer {
         ServerInitiator::initialize(self).await?;
         let configurations = self.configurations.as_ref().unwrap();
         
-        // Server API task
+        // Server Task
         let server_task = {
-            let server_api = self.server_api.take().unwrap();
+            let server_core = self.server_core.take().unwrap();
             let database_config = configurations.database.clone();
+            
             tokio::spawn(async move {
-                server_api.handle_connections(&database_config).await;
+                server_core.handle_connections(&database_config).await;
             })
         };
+
+        // AxiomZ Terminal Task
+
         
+        // Joining Task
         _ = tokio::join!(server_task); // TODO
 
         
         Ok(())
     }
 }
+
+// ----------------- SERVER CORE ----------------------
+struct ServerCore {
+    tcp_listener: TcpListener
+}
+
+impl ServerCore {
+    pub async fn build(spider_config: &shared::config::SpiderConfig) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let tcp_listener = TcpListener::bind(format!("{}:{}", spider_config.host, spider_config.port)).await?;
+        
+        Ok(Self {
+            tcp_listener: tcp_listener
+        })
+    }
+
+    pub async fn handle_connections(&self, database_config: &shared::config::DatabaseConfig) {
+        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+        loop {
+            
+        }
+    }
+}
+
 // ----------------- SERVER HELPERS ----------------------
 struct Configurations {
     pub database: shared::config::DatabaseConfig,
@@ -66,9 +98,6 @@ impl ServerInitiator {
         Self::init_configurations(server, &mut stdout, &mut lines_written)?;
         Self::init_tcp_listener(server, &mut stdout, &mut lines_written).await?;
         Self::init_database(server, &mut stdout, &mut lines_written).await?;
-
-        // Clearing initialization traces from the terminal
-        Self::clear_init_traces(&mut stdout, lines_written)?;
         
         Ok(())
     }
@@ -100,8 +129,8 @@ impl ServerInitiator {
         let configurations = server.configurations.as_ref().unwrap();
         let addr = format!("{}:{}", configurations.spider.host, configurations.spider.port);
         
-        match ServerAPI::build(&configurations.spider).await {
-            Ok(s) => {server.server_api = Some(s)}
+        match ServerCore::build(&configurations.spider).await {
+            Ok(s) => {server.server_core = Some(s)}
             Err(e) => {
                 writeln!(stdout, "{}", "failed".bold().red())?;
                 writeln!(stdout, "       {} {}", ">".red().bold(), e.to_string().red().italic())?;
@@ -110,7 +139,7 @@ impl ServerInitiator {
         }
         
         write!(stdout, "{}", "done".bold().green())?;
-        crossterm::queue!(stdout, cursor::RestorePosition, terminal::Clear(terminal::ClearType::CurrentLine))?;
+        crossterm::queue!(stdout, cursor::RestorePosition, crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine))?;
         writeln!(stdout, "    {} server listening: {}", "-".bold().green(), addr.italic().cyan())?;
         *lines_written += 1;
 
@@ -149,13 +178,6 @@ impl ServerInitiator {
             *lines_written += 1;
             thread::sleep(std::time::Duration::from_millis(1000));
         }
-        
-        Ok(())
-    }
-
-    fn clear_init_traces(stdout: &mut Stdout, lines_written: u16) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        crossterm::queue!(stdout, cursor::MoveUp(lines_written), terminal::Clear(terminal::ClearType::FromCursorDown))?;
-        stdout.flush()?;
         
         Ok(())
     }

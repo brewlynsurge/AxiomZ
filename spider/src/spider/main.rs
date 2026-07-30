@@ -1,11 +1,20 @@
 mod server;
+mod terminal;
+use terminal::{TerminalHandler, AXIOMZ_TERMINAL, TerminalRenderer};
 
-use crossterm::style::Stylize;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    println!("{} [Version {}]", "Spider".cyan().bold(), env!("CARGO_PKG_VERSION").italic());
-    println!("(c) {}. All rights are reserved.\n", "AxiomZ".cyan().italic());
+    let _alternate_screen_guard = terminal::AlternateScreenGuard::new()?;
+
+    terminal::log!("Helllo");
+
+    terminal::log!(OVERWRITE -> "Hi");
+
+    loop {
+
+    }
+
 
     let mut axiomz_server = server::AxiomZServer::new();
     axiomz_server.start().await?;

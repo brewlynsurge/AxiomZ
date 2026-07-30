@@ -112,6 +112,13 @@ impl Crawler {
     }
 
     pub async fn start(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Initializing heartbeat task
+        let crawler_api = self.crawler_api.clone();
+        _ = tokio::spawn(async move {
+            let mut crawler_api = crawler_api.lock().await;
+            crawler_api.init_heatbeat().await
+        });
+        
         self.scraper.start(self.crawler_api.clone()).await
     }
 }

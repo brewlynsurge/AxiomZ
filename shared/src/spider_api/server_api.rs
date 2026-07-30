@@ -13,7 +13,7 @@ pub struct ServerAPI {
 impl ServerAPI {
     pub async fn build(spider_config: &config::SpiderConfig) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let tcp_listener = TcpListener::bind(format!("{}:{}", spider_config.host, spider_config.port)).await?;
-
+        
         Ok(Self {
             tcp_listener: tcp_listener
         })
